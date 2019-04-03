@@ -18,41 +18,22 @@
 package org.apache.spark.sql.catalyst.optimizer
 
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical.{Distinct, GlobalLimit, LocalLimit, LocalRelation, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
-import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.apache.spark.sql.types.IntegerType
 
 class OptimizeLimitZeroSuite extends PlanTest {
 
   object Optimize extends RuleExecutor[LogicalPlan] {
     val batches =
-      Batch("PropagateEmptyRelation", Once,
-        CombineUnions,
-        ReplaceDistinctWithAggregate,
-        ReplaceExceptWithAntiJoin,
+      Batch("OptimizeLimitZero", Once,
         ReplaceIntersectWithSemiJoin,
-        PushDownPredicate,
-        PruneFilters,
         OptimizeLimitZero,
-        PropagateEmptyRelation,
-        CollapseProject) :: Nil
-  }
-
-  object OptimizeWithoutPropagateEmptyRelation extends RuleExecutor[LogicalPlan] {
-    val batches =
-      Batch("OptimizeWithoutPropagateEmptyRelation", Once,
-        CombineUnions,
-        ReplaceDistinctWithAggregate,
-        ReplaceExceptWithAntiJoin,
-        ReplaceIntersectWithSemiJoin,
-        PushDownPredicate,
-        PruneFilters,
-        CollapseProject) :: Nil
+        PropagateEmptyRelation) :: Nil
   }
 
   val testRelation1 = LocalRelation.fromExternalRows(Seq('a.int), data = Seq(Row(1)))
@@ -88,12 +69,10 @@ class OptimizeLimitZeroSuite extends PlanTest {
 
   test("Limit 0: Joins") {
     val testcases = Seq(
-      (Inner, Some(LocalRelation('a.int, 'b.int))),
-      (LeftOuter,
-        Some(Project(Seq('a, Literal(null).cast(IntegerType).as('b)), testRelation1).analyze)),
-      (RightOuter, Some(LocalRelation('a.int, 'b.int))),
-      (FullOuter,
-        Some(Project(Seq('a, Literal(null).cast(IntegerType).as('b)), testRelation1).analyze))
+      (Inner, LocalRelation('a.int, 'b.int)),
+      (LeftOuter, Project(Seq('a, Literal(null).cast(IntegerType).as('b)), testRelation1).analyze),
+      (RightOuter, LocalRelation('a.int, 'b.int)),
+      (FullOuter, Project(Seq('a, Literal(null).cast(IntegerType).as('b)), testRelation1).analyze)
     )
 
     testcases.foreach { case (jt, answer) =>
@@ -101,8 +80,7 @@ class OptimizeLimitZeroSuite extends PlanTest {
         .join(testRelation2.limit(0), joinType = jt, condition = Some('a.attr == 'b.attr))
 
       val optimized = Optimize.execute(query.analyze)
-      val correctAnswer =
-        answer.getOrElse(OptimizeWithoutPropagateEmptyRelation.execute(query.analyze))
+      val correctAnswer = answer
 
       comparePlans(optimized, correctAnswer)
     }
@@ -117,8 +95,7 @@ class OptimizeLimitZeroSuite extends PlanTest {
       .join(testRelation3.limit(0), joinType = Inner, condition = Some('a.attr == 'c.attr))
 
     val optimized = Optimize.execute(query.analyze)
-    val correctAnswer = Some(LocalRelation('a.int, 'b.int, 'c.int))
-      .getOrElse(OptimizeWithoutPropagateEmptyRelation.execute(query.analyze))
+    val correctAnswer = LocalRelation('a.int, 'b.int, 'c.int)
 
     comparePlans(optimized, correctAnswer)
   }
@@ -128,8 +105,7 @@ class OptimizeLimitZeroSuite extends PlanTest {
       .intersect(testRelation1.limit(0), isAll = false)
 
     val optimized = Optimize.execute(query.analyze)
-    val correctAnswer = Distinct(Some(LocalRelation('a.int))
-      .getOrElse(OptimizeWithoutPropagateEmptyRelation.execute(query.analyze)))
+    val correctAnswer = Distinct(LocalRelation('a.int))
 
     comparePlans(optimized, correctAnswer)
   }
