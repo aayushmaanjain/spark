@@ -26,8 +26,8 @@ import org.apache.spark.sql.catalyst.plans.logical.{Distinct, GlobalLimit, Local
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.types.IntegerType
 
+// Test class to verify correct functioning of OptimizeLimitZero rule in various scenarios
 class OptimizeLimitZeroSuite extends PlanTest {
-
   object Optimize extends RuleExecutor[LogicalPlan] {
     val batches =
       Batch("OptimizeLimitZero", Once,
